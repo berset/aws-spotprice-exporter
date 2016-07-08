@@ -45,25 +45,30 @@ func main() {
 
 func fetch_prices() {
 	svc := ec2.New(session.New(), &aws.Config{Region: aws.String(*aws_az)})
-	params := &ec2.DescribeSpotPriceHistoryInput{}
+	params := &ec2.DescribeSpotPriceHistoryInput{
+        StartTime: aws.Time(time.Now()),
+        EndTime:   aws.Time(time.Now()),
+    }
 
-	resp, err := svc.DescribeSpotPriceHistory(params)
+    err := svc.DescribeSpotPriceHistoryPages(params,
+        func(resp *ec2.DescribeSpotPriceHistoryOutput, lastPage bool) bool {
+	        prices := resp.SpotPriceHistory
+	        for _, price := range prices {
+	        	spot_p, err := strconv.ParseFloat(*price.SpotPrice, 64)
+	        	if err == nil {
+	        		price_gauge.WithLabelValues(
+	        			*price.AvailabilityZone,
+	        			*price.InstanceType,
+	        			*price.ProductDescription).Set(spot_p)
+	        	} else {
+	        		fmt.Println(err)
+	        	}
+	        }
+            return len(prices) > 0
+        })
 
 	if err != nil {
 		fmt.Println(err.Error())
 		return
-	}
-
-	prices := resp.SpotPriceHistory
-	for _, price := range prices {
-		spot_p, err := strconv.ParseFloat(*price.SpotPrice, 64)
-		if err == nil {
-			price_gauge.WithLabelValues(
-				*price.AvailabilityZone,
-				*price.InstanceType,
-				*price.ProductDescription).Set(spot_p)
-		} else {
-			fmt.Println(err)
-		}
 	}
 }
